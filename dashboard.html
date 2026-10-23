@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>抓錯統計</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap">
+<link rel="stylesheet" href="style.css">
+<style>
+main{max-width:1100px}
+.top{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+.stats{display:flex;gap:28px;flex-wrap:wrap}
+.stat b{display:block;font-size:44px;font-weight:900;color:var(--acc);line-height:1.1}
+.stat span{color:var(--mut)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,40%) 64px;gap:14px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:20px}
+.track{height:22px;background:var(--line);border-radius:6px;overflow:hidden}
+.fill{height:100%;background:var(--bar);width:0;transition:width .5s}
+.reveal .decoy .fill{background:var(--bad)}
+.pct{font-weight:900;text-align:right;font-variant-numeric:tabular-nums}
+.badge{font-size:14px;font-weight:700;color:var(--bad);margin-left:8px}
+.fix{grid-column:1/-1;color:var(--mut);font-size:16px;margin-top:-4px}
+</style></head>
+<body><main>
+<div class="top">
+  <div><h1>抓錯統計</h1><p class="sub" id="note">掃 QR code 作答，這裡會即時更新</p></div>
+  <div class="stats">
+    <div class="stat"><b id="n">0</b><span>已作答人數</span></div>
+    <div class="stat"><b id="avg">–</b><span>平均找到（共 <span id="total">–</span> 個）</span></div>
+  </div>
+</div>
+<div style="display:flex;gap:10px;margin-bottom:12px">
+  <button class="ghost" id="rev">顯示正確做法</button>
+  <button class="ghost" id="sort">依被找到比例排序</button>
+</div>
+<div id="rows"></div>
+</main>
+<script src="config.js"></script><script src="questions.js"></script>
+<script>
+const Q = window.QUIZ.items, rowsEl = document.getElementById("rows");
+let answers = [], showFix = false, sorted = false;
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+
+function render(){
+  const n = answers.length;
+  document.getElementById("n").textContent = n;
+  const realIds = Q.filter(q=>q.real).map(q=>q.id);
+  document.getElementById("total").textContent = realIds.length;
+  const avg = n ? answers.reduce((s,a)=>s+a.picks.filter(p=>realIds.includes(p)).length,0)/n : null;
+  document.getElementById("avg").textContent = avg===null ? "–" : avg.toFixed(1);
+  let items = Q.map(q=>({q, c:answers.filter(a=>a.picks.includes(q.id)).length}));
+  if(sorted) items.sort((a,b)=>b.c-a.c);
+  rowsEl.innerHTML = items.map(({q,c})=>{
+    const pct = n ? Math.round(c/n*100) : 0;
+    const badge = (showFix && !q.real) ? '<span class="badge">其實是對的</span>' : '';
+    return `<div class="row ${q.real?'':'decoy'}"><div>${esc(q.text)}${badge}</div>
+      <div class="track"><div class="fill" style="width:${pct}%"></div></div><div class="pct">${pct}%</div>
+      ${showFix?`<div class="fix">${esc(q.fix)}</div>`:''}</div>`;
+  }).join("");
+}
+
+async function poll(){
+  if(!window.DB_URL){document.getElementById("note").textContent="尚未設定資料庫網址（config.js）";return}
+  try{
+    const r = await fetch(window.DB_URL+"/answers/"+encodeURIComponent(window.SESSION)+".json");
+    if(r.ok){
+      const d = await r.json() || {};
+      answers = Object.values(d).map(v=>({picks:String(v.picks||"").split(",").filter(Boolean)}));
+      render();
+    }
+  }catch(e){}
+}
+document.getElementById("rev").onclick=e=>{showFix=!showFix;rowsEl.classList.toggle("reveal",showFix);e.target.textContent=showFix?"隱藏正確做法":"顯示正確做法";render()};
+document.getElementById("sort").onclick=e=>{sorted=!sorted;e.target.textContent=sorted?"回到原順序":"依被找到比例排序";render()};
+render(); poll(); setInterval(poll,2000);
+</script></body></html>

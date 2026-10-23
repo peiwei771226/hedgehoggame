@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>刺蝟抓錯</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap">
+<link rel="stylesheet" href="style.css"></head>
+<body><main>
+<h1>刺蝟飼養抓錯</h1>
+<div id="app"></div>
+</main>
+<script src="config.js"></script><script src="questions.js"></script>
+<script>
+const Q = window.QUIZ.items, app = document.getElementById("app");
+const KEY = "hedgehog-done-" + window.SESSION;
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function store(v){try{if(v===undefined)return JSON.parse(localStorage.getItem(KEY));localStorage.setItem(KEY,JSON.stringify(v))}catch(e){return null}}
+
+function renderForm(){
+  app.innerHTML = `<p class="sub">看完影片，勾選你認為「錯誤」的飼養方式。有些選項是影片裡做對的，勾了會扣分。</p>
+  <label for="nm" class="sub">組別或暱稱</label>
+  <input type="text" id="nm" maxlength="20" placeholder="例如：第 3 桌">
+  <div id="opts"></div>
+  <p class="err" id="err" hidden></p>
+  <button id="go">送出答案</button>`;
+  const box = document.getElementById("opts");
+  Q.forEach(q=>{
+    const l = document.createElement("label"); l.className="opt";
+    l.innerHTML = `<input type="checkbox" value="${q.id}"><span>${esc(q.text)}</span>`;
+    l.querySelector("input").addEventListener("change",e=>l.classList.toggle("on",e.target.checked));
+    box.appendChild(l);
+  });
+  document.getElementById("go").onclick = submit;
+}
+
+function score(picks){
+  const real = Q.filter(q=>q.real);
+  const hits = real.filter(q=>picks.includes(q.id)).length;
+  const wrong = Q.filter(q=>!q.real && picks.includes(q.id)).length;
+  return {hits, wrong, total: real.length};
+}
+
+function renderResult(picks){
+  const s = score(picks);
+  app.innerHTML = `<p class="sub">已送出，請看大螢幕。</p>
+  <div class="score">${s.hits} / ${s.total}</div>
+  <p class="sub">找到的錯誤，誤選 ${s.wrong} 項（影片中其實做對的）</p>
+  <div id="list"></div>`;
+  const list = document.getElementById("list");
+  Q.forEach(q=>{
+    const picked = picks.includes(q.id);
+    let cls, tag;
+    if(q.real && picked){cls="ok";tag="找到了"}
+    else if(q.real){cls="bad";tag="漏掉了"}
+    else if(picked){cls="bad";tag="誤選：這其實是對的"}
+    else {cls="ok";tag="沒有誤選"}
+    const d = document.createElement("div"); d.className="res "+cls;
+    d.innerHTML = `<span class="tag">${tag}</span><b>${esc(q.text)}</b><small>${esc(q.fix)}</small>`;
+    list.appendChild(d);
+  });
+}
+
+async function submit(){
+  const btn = document.getElementById("go"), err = document.getElementById("err");
+  const picks = [...document.querySelectorAll("#opts input:checked")].map(i=>i.value);
+  err.hidden = true;
+  if(!window.DB_URL){err.textContent="尚未設定資料庫網址（config.js）。";err.hidden=false;return}
+  btn.disabled = true; btn.textContent = "送出中…";
+  try{
+    const r = await fetch(window.DB_URL+"/answers/"+encodeURIComponent(window.SESSION)+".json",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name:document.getElementById("nm").value.trim().slice(0,20),picks:picks.join(","),t:Date.now()})});
+    if(!r.ok) throw new Error(r.status);
+    store({picks}); renderResult(picks);
+  }catch(e){
+    err.textContent="送出失敗，請確認網路後再按一次。"; err.hidden=false;
+    btn.disabled=false; btn.textContent="送出答案";
+  }
+}
+
+const done = store();
+if(done && done.picks) renderResult(done.picks); else renderForm();
+</script></body></html>
